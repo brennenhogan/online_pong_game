@@ -20,7 +20,7 @@ int padLY, padRY;
 // Player scores
 int scoreL, scoreR;
 // Current Round
-int curr_round;
+int curr_round, num_rounds;
 
 // ncurses window
 WINDOW *win;
@@ -104,6 +104,17 @@ void countdown(const char *message1, const char *message2) {
     padLY = padRY = HEIGHT / 2; // Wipe out any input that accumulated during the delay
 }
 
+void game_over() {
+    int h = 5;
+    int w = 14;
+    WINDOW *popup = newwin(h, w, (LINES - h) / 2, (COLS - w) / 2);
+    box(popup, 0, 0);
+	mvwprintw(popup, 2, 2, "Game Ended");
+    
+    wrefresh(popup);
+    padLY = padRY = HEIGHT / 2; // Wipe out any input that accumulated during the delay
+}
+
 /* Perform periodic game functions:
  * 1. Move the ball
  * 2. Detect collisions
@@ -155,6 +166,7 @@ void tock() {
         	countdown("<-- SCORE", " ");
 		}
     }
+
     // Finally, redraw the current state
     draw(ballX, ballY, padLY, padRY, scoreL, scoreR);
 }
@@ -163,7 +175,7 @@ void tock() {
  * Updates global pad positions
  */
 void *listenInput(void *args) {
-    while(1) {
+    while(curr_round <= num_rounds) {
         switch(getch()) {
             case KEY_UP: padRY--;
              break;
@@ -196,7 +208,7 @@ int main(int argc, char *argv[]) {
     // Process args
     // refresh is clock rate in microseconds
     // This corresponds to the movement speed of the ball
-    int refresh, num_rounds;
+    int refresh;
     char difficulty[10]; 
 	char rounds[10];
     printf("Please select the difficulty level (easy, medium or hard): ");
@@ -230,7 +242,7 @@ int main(int argc, char *argv[]) {
 
     // Main game loop executes tock() method every REFRESH microseconds
     struct timeval tv;
-    while(1) {
+    while(curr_round <= num_rounds) {
         gettimeofday(&tv,NULL);
         unsigned long before = 1000000 * tv.tv_sec + tv.tv_usec;
         tock(); // Update game state
@@ -242,7 +254,10 @@ int main(int argc, char *argv[]) {
         if(toSleep > refresh) toSleep = refresh;
         usleep(toSleep); // Sleep exactly as much as is necessary
     }
-    
+
+	//Game ended print
+	game_over();
+ 
     // Clean up
     pthread_join(pth, NULL);
     endwin();
