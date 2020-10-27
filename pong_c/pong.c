@@ -19,6 +19,8 @@ int dx, dy;
 int padLY, padRY;
 // Player scores
 int scoreL, scoreR;
+// Current Round
+int curr_round;
 
 // ncurses window
 WINDOW *win;
@@ -75,19 +77,28 @@ void reset() {
  * This method blocks for the duration of the countdown
  * message: The text to display during the countdown
  */
-void countdown(const char *message) {
-    int h = 4;
-    int w = strlen(message) + 4;
+void countdown(const char *message1, const char *message2) {
+    int h = 5;
+    int w = strlen(message1) + 4;
     WINDOW *popup = newwin(h, w, (LINES - h) / 2, (COLS - w) / 2);
     box(popup, 0, 0);
-    mvwprintw(popup, 1, 2, message);
+    mvwprintw(popup, 1, 2, message1);
+	mvwprintw(popup, 2, 2, message2);
     int countdown;
     for(countdown = 3; countdown > 0; countdown--) {
-        mvwprintw(popup, 2, w / 2, "%d", countdown);
+        mvwprintw(popup, 3, w / 2, "%d", countdown);
         wrefresh(popup);
         sleep(1);
     }
-    wclear(popup);
+
+	/* Resets the scores after each round and incriments the round counter */
+	if(scoreR == 2 || scoreL == 2){
+		scoreR = 0;
+		scoreL = 0;
+		curr_round += 1;
+	}
+    
+	wclear(popup);
     wrefresh(popup);
     delwin(popup);
     padLY = padRY = HEIGHT / 2; // Wipe out any input that accumulated during the delay
@@ -126,11 +137,23 @@ void tock() {
     if(ballX == 0) {
         scoreR = (scoreR + 1) % 100;
         reset();
-        countdown("SCORE -->");
+		if(scoreR == 2){
+			char message[BUFSIZ];
+			sprintf(message, "Round %d", curr_round);
+        	countdown(message, "WIN -->");
+		} else{
+        	countdown("SCORE -->", " ");
+		}
     } else if(ballX == WIDTH - 1) {
         scoreL = (scoreL + 1) % 100;
         reset();
-        countdown("<-- SCORE");
+		if(scoreL == 2){
+			char message[BUFSIZ];
+			sprintf(message, "Round %d", curr_round);
+        	countdown(message, "<-- WIN");
+		} else{
+        	countdown("<-- SCORE", " ");
+		}
     }
     // Finally, redraw the current state
     draw(ballX, ballY, padLY, padRY, scoreL, scoreR);
@@ -173,10 +196,23 @@ int main(int argc, char *argv[]) {
     // Process args
     // refresh is clock rate in microseconds
     // This corresponds to the movement speed of the ball
-    int refresh;
+    int refresh, num_rounds;
     char difficulty[10]; 
+	char rounds[10];
     printf("Please select the difficulty level (easy, medium or hard): ");
     scanf("%s", &difficulty);
+	printf("Please enter the maximum number of rounds to play: ");
+	scanf("%s", &rounds);
+	num_rounds = atoi(rounds);
+
+	while(num_rounds <= 0){
+		printf("Please enter the maximum number of rounds to play (must be greater than 0): ");
+		scanf("%s", &rounds);
+		num_rounds = atoi(rounds);
+	}
+
+	curr_round = 1;
+	
     if(strcmp(difficulty, "easy") == 0) refresh = 80000;
     else if(strcmp(difficulty, "medium") == 0) refresh = 40000;
     else if(strcmp(difficulty, "hard") == 0) refresh = 20000;
@@ -186,7 +222,7 @@ int main(int argc, char *argv[]) {
 
     // Set starting game state and display a countdown
     reset();
-    countdown("Starting Game");
+    countdown("Starting Game", " ");
     
     // Listen to keyboard input in a background thread
     pthread_t pth;
