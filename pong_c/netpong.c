@@ -19,6 +19,7 @@ int setup_client(char*, int);
 void send_int(int);
 int recv_int();
 void sendPaddle(int);
+void sendBall(char*);
 void* listenSock(void*);
 
 // Global variables recording the state of the game
@@ -142,6 +143,8 @@ void tock() {
     ballY += dy;
     
     // Check for paddle collisions
+	// hostSide is 1 when the ball is on the right hand side of the board
+	int hostSide = (ballX < WIDTH / 2) ? 0 : 1;
     // padY is y value of closest paddle to ball
     int padY = (ballX < WIDTH / 2) ? padLY : padRY;
     // colX is x value of ball for a paddle collision
@@ -153,6 +156,13 @@ void tock() {
         if(ballY < padY) dy = -1;
         else if(ballY > padY) dy = 1;
         else dy = 0;
+		//Send the info based on the collision event
+		if(isHost == hostSide){ //If the ball is on your side, make the call
+			char ball_cords[BUFSIZ];
+
+			sprintf(ball_cords, "B %d %d %d %d", ballX, ballY, dx, dy);
+			sendBall(ball_cords);
+		}
     }
 
     // Check for top/bottom boundary collisions
@@ -437,6 +447,12 @@ void sendPaddle(int paddleY){
 	}
 }
 
+void sendBall(char* buf){
+	if(send(new_s, buf, strlen(buf)+1, 0)==-1){
+		printf("Server response error");
+	}
+}
+
 void* listenSock(void* args){
 	char buf[BUFSIZ];
 	int len;
@@ -456,7 +472,14 @@ void* listenSock(void* args){
 				padRY = atoi(paddlePos);
 			}
 		} else if(strcmp(send_type, "B") == 0){
-			//Ball logic
+			char *b_x = strtok(NULL, " ");
+			ballX = atoi(b_x);
+			char *b_y = strtok(NULL, " ");
+			ballY = atoi(b_y);
+			char *d_x = strtok(NULL, " ");
+			dx = atoi(d_x);
+			char *d_y = strtok(NULL, " ");
+			dy = atoi(d_y);
 		}
 
 		bzero((char *) &buf, sizeof(buf));
