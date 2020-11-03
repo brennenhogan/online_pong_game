@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <signal.h>
 
 #define WIDTH 43
 #define HEIGHT 21
@@ -23,6 +24,8 @@ int recv_int();
 void sendPaddle(int);
 void sendBall(char*);
 void* listenSock(void*);
+void handler(int);
+void eog_handler();
 
 // Global variables recording the state of the game
 // Position of ball
@@ -39,6 +42,8 @@ int curr_round, num_rounds;
 int isHost = 0;
 // Socket for communication
 int new_s;
+// Threads
+pthread_t pth, listener;
 
 // ncurses window
 WINDOW *win;
@@ -260,7 +265,6 @@ int main(int argc, char *argv[]) {
 		}
 		port = atoi(argv[2]);
 	}
-	printf("isHost %d, port: %d, host: %s\n", isHost, port, host);
 
 	int refresh;
 	char difficulty[10]; 
@@ -301,6 +305,8 @@ int main(int argc, char *argv[]) {
 
 	curr_round = 1;
 
+	signal(SIGINT, handler);
+
 	// Set up ncurses environment
 	initNcurses();
 
@@ -309,11 +315,9 @@ int main(int argc, char *argv[]) {
 	countdown("Starting Game", " ");
     
 	// Listen to keyboard input in a background thread
-	pthread_t pth;
 	pthread_create(&pth, NULL, listenInput, NULL);
 	
 	// Listen to socket in background
-	pthread_t listener;
 	pthread_create(&listener, NULL, listenSock, NULL);
 
 	// Main game loop executes tock() method every REFRESH microseconds
@@ -333,11 +337,12 @@ int main(int argc, char *argv[]) {
 
 	//Game ended print
 	game_over();
+	usleep(1000000);
+	sendBall("E");
  
 	// Clean up
-	pthread_join(pth, NULL);
-	pthread_join(listener, NULL);
 	endwin();
+	close(new_s);
 	return 0;
 }
 
@@ -480,9 +485,36 @@ void* listenSock(void* args){
 			dx = atoi(d_x);
 			char *d_y = strtok(NULL, " ");
 			dy = atoi(d_y);
+		} else if(strcmp(send_type, "E") == 0){
+			eog_handler();
+		} else if(strcmp(send_type, "T") == 0){
+			handler(SIGINT);
 		}
 
 		bzero((char *) &buf, sizeof(buf));
 	}
 
+}
+
+void handler(int signal) {
+	//do cleanup tasks (send termination message to peer, close socket cleanly, etc.)
+	sendBall("T");
+ 
+	// Clean up
+	endwin(); // clean up ncurses
+	close(new_s);
+	
+	exit(0);		         
+}
+
+void eog_handler() {
+	//do cleanup tasks (send termination message to peer, close socket cleanly, etc.)
+	game_over();
+	usleep(1000000);
+ 
+	// Clean up
+	endwin(); // clean up ncurses
+	close(new_s);
+	
+	exit(0);		    
 }
