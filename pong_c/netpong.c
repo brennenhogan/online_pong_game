@@ -16,8 +16,10 @@
 
 int setup_host(int);
 int setup_client(char*, int);
-void send_int(int, int);
-int recv_int(int);
+void send_int(int);
+int recv_int();
+void sendPaddle(int);
+void* listenSock(void*);
 
 // Global variables recording the state of the game
 // Position of ball
@@ -32,6 +34,8 @@ int scoreL, scoreR;
 int curr_round, num_rounds;
 // Determines if the program is the host
 int isHost = 0;
+// Socket for communication
+int new_s;
 
 // ncurses window
 WINDOW *win;
@@ -190,20 +194,24 @@ void *listenInput(void *args) {
 		if(isHost){ // Host uses arrow keys
 			switch(getch()) {
 				case KEY_UP: padRY--;
+					sendPaddle(padRY);
 					break;
 				case KEY_DOWN: padRY++;
+					sendPaddle(padRY);
 					break;
 				default: break;
 			}
 		} else { // Client uses w and s keys
 			switch(getch()) {
 				case 'w': padLY--;
+					sendPaddle(padLY);
 					break;
 				case 's': padLY++;
+					sendPaddle(padLY);
 					break;
 				default: break;
-       }
-    }
+       		}
+    	}
 	}
 	return NULL;
 }
@@ -242,7 +250,7 @@ int main(int argc, char *argv[]) {
 	}
 	printf("isHost %d, port: %d, host: %s\n", isHost, port, host);
 
-	int refresh, socket;
+	int refresh;
 	char difficulty[10]; 
 	char rounds[10];
 	if(isHost){ // Only let the host pick the difficulty and number of rounds
@@ -259,24 +267,24 @@ int main(int argc, char *argv[]) {
 		}
 
 		// Setup host connection
-		socket = setup_host(port);
+		new_s = setup_host(port);
 		if(strcmp(difficulty, "easy") == 0) refresh = 80000;
 		else if(strcmp(difficulty, "medium") == 0) refresh = 40000;
 		else if(strcmp(difficulty, "hard") == 0) refresh = 20000;
 		else refresh = 80000;
 	
 		// Send the refresh and the number of rounds to the client
-		send_int(socket, refresh);
-		int ack = recv_int(socket);
-		send_int(socket, num_rounds);
+		send_int(refresh);
+		int ack = recv_int();
+		send_int(num_rounds);
 	} else {
 		// Connect to the host
-		socket = setup_client(host, port);
+		new_s = setup_client(host, port);
 
 		// Receive the refresh and the number of rounds from the host
-		refresh = recv_int(socket);
-		send_int(socket, 0);
-		num_rounds = recv_int(socket);
+		refresh = recv_int();
+		send_int(0);
+		num_rounds = recv_int();
 	}
 	printf("setup complete!\n");
 
@@ -292,6 +300,10 @@ int main(int argc, char *argv[]) {
 	// Listen to keyboard input in a background thread
 	pthread_t pth;
 	pthread_create(&pth, NULL, listenInput, NULL);
+	
+	// Listen to socket in background
+	pthread_t listener;
+	pthread_create(&listener, NULL, listenSock, NULL);
 
 	// Main game loop executes tock() method every REFRESH microseconds
 	struct timeval tv;
@@ -313,6 +325,7 @@ int main(int argc, char *argv[]) {
  
 	// Clean up
 	pthread_join(pth, NULL);
+	pthread_join(listener, NULL);
 	endwin();
 	return 0;
 }
@@ -321,7 +334,7 @@ int setup_host(int port){
 	struct sockaddr_in sin, client_addr;
 	char buf[BUFSIZ];
 	int len, addr_len;
-	int s, new_s;
+	int s, connected_s;
 
 	/* build address data structure */
 	bzero((char *)&sin, sizeof(sin));
@@ -352,13 +365,13 @@ int setup_host(int port){
 	printf("Waiting for connections...\n");
 	/* wait for connection, then receive and print text */
 	addr_len = sizeof (client_addr);
-	if((new_s = accept(s, (struct sockaddr *)&client_addr, &addr_len)) < 0) {
+	if((connected_s = accept(s, (struct sockaddr *)&client_addr, &addr_len)) < 0) {
 		perror("netpong: accept");
 		exit(1);
 	}
 
 	close(s);
-	return new_s;
+	return connected_s;
 }
 
 int setup_client(char* host, int port){
@@ -396,38 +409,57 @@ int setup_client(char* host, int port){
 	return s;
 }
 
-void send_int(int socket, int value){
+void send_int(int value){
 	int formatted = htonl(value);
-	if(send(socket, &formatted, sizeof(formatted), 0)==-1){
+	if(send(new_s, &formatted, sizeof(formatted), 0)==-1){
 		perror("netpong: error sending message");
 		exit(1);
 	}
 }
 
-int recv_int(int socket){
+int recv_int(){
 	int length;
 	int received_int;
-	if((length=recv(socket, &received_int, sizeof(received_int), 0)) < 0){
+	if((length=recv(new_s, &received_int, sizeof(received_int), 0)) < 0){
 		perror("netpong: error receiving reply");
 		exit(1);
 	}
 	return ntohl(received_int);
 }
 
-/*
-		printf("Connection established.\n");
-		while (1){
-			if((len=recv(new_s, buf, sizeof(buf), 0))==-1){
-				perror("Server Received Error!");
-				exit(1);
+void sendPaddle(int paddleY){
+	char buf[BUFSIZ];
+
+	sprintf(buf, "P %d", paddleY);
+
+	if(send(new_s, buf, strlen(buf)+1, 0)==-1){
+		printf("Server response error");
+	}
+}
+
+void* listenSock(void* args){
+	char buf[BUFSIZ];
+	int len;
+
+	while (1){
+		if((len=recv(new_s, buf, sizeof(buf), 0))==-1){
+			perror("Server Received Error!");
+			exit(1);
+		}
+		//Check if the sent data was for the paddle or ball
+		char *send_type = strtok(buf, " ");
+		if(strcmp(send_type, "P") == 0){
+			char *paddlePos = strtok(NULL, " ");
+			if(isHost){ //Host receives info for the left paddle
+				padLY = atoi(paddlePos);
+			} else{ //P2 receives info for the right paddle
+				padRY = atoi(paddlePos);
 			}
-			else if(len==0){
-				break;
-			}
-			complete_request(new_s, buf);
-			bzero((char *) &buf, sizeof(buf));
+		} else if(strcmp(send_type, "B") == 0){
+			//Ball logic
 		}
 
-		printf("Client finishes, close the connection!\n");
-		close(new_s);
-*/
+		bzero((char *) &buf, sizeof(buf));
+	}
+
+}
