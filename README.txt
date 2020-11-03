@@ -4,6 +4,7 @@ To compile run: make
 
 To run the host: ./netpong --host PORT
 	Then, you should select a difficulty and then the number of rounds to play.
+	If the difficulty is not easy, medium, or hard - it defaults to easy.
 To run the client: ./netpong HOSTNAME PORT
 	The game will start right away.
 
